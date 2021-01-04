@@ -9,86 +9,134 @@
 <body>
 
 <div style="padding:2em;">
-    <h1>TCGUI - {{ rules|length }} Available Interfaces</h1>
-    <ul>
-        {% for rule in rules %}
-            <li><a href="#{{ rule['name'] }}">{{ rule['name'] }}</a></li>
-        {% endfor %}
-    </ul>
-    {% for rule in rules %}
-        <div>
-            <h2 id="{{ rule['name'] }}">{{ rule['name'] }}</h2>
-            <form method="POST" action="{{ url_for('new_rule', interface=rule['name']) }}">
-                <table class="pure-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Current Value</th>
-                            <th>New Value</th>
-                            <th>Variance / Correlation</th>
-                            <th>New Value</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <tr>
-                        <td>Rate</td>
-			            <td class="tcgui-value-cell">{{ rule['rate'] }}</td>
-                        <td class="tcgui-input-cell">
-                            <input type="number" name="Rate" size="5">
-                            <select name="rate_unit">
-                                {% for unit in units %}
-                                <option value="{{ unit }}"{% if unit == standard_unit %} selected{% endif %}>{{ unit }}</option>
-                                {% endfor %}
-                            </select>
-                        </td>
-                    </tr>
-                    <tr>
-                        <td>Delay</td>
-                        <td class="tcgui-value-cell">{{ rule['delay'] }}</td>
-                        <td class="tcgui-input-cell"><input type="number" name="Delay" size="5"> ms</td>
-                        <td class="tcgui-value-cell">±{{ rule['delayVariance'] }}</td>
-                        <td class="tcgui-input-cell">±<input type="number" name="DelayVariance" size="5"> ms</td>
-                    </tr>
-                    <tr>
-                        <td>Loss</td>
-                        <td class="tcgui-value-cell">{{ rule['loss'] }}</td>
-                        <td class="tcgui-input-cell"><input type="number" name="Loss" size="5"> %</td>
-                        <td class="tcgui-value-cell">{{ rule['lossCorrelation'] }}</td>
-                        <td class="tcgui-input-cell"> <input type="number" name="LossCorrelation" size="5"> %</td>
-                    </tr>
-                    <tr>
-                        <td>Duplicate</td>
-                        <td class="tcgui-value-cell">{{ rule['duplicate'] }}</td>
-                        <td class="tcgui-input-cell"><input type="number" name="Duplicate" size="5"> %</td>
-                    </tr>
-                    <tr>
-                        <td>Reorder</td>
-                        <td class="tcgui-value-cell">{{ rule['reorder'] }}</td>
-                        <td class="tcgui-input-cell"><input type="number" name="Reorder" size="5"> %</td>
-                        <td class="tcgui-value-cell">{{ rule['reorderCorrelation'] }}</td>
-                        <td class="tcgui-input-cell"> <input type="number" name="ReorderCorrelation" size="5"> %</td>
-                    </tr>
-                    <tr>
-                        <td>Corrupt</td>
-                        <td class="tcgui-value-cell">{{ rule['corrupt'] }}</td>
-                        <td class="tcgui-input-cell"><input type="number" name="Corrupt" size="5"> %</td>
-                    </tr>
-                    <tr>
-                        <td>Limit</td>
-                        <td class="tcgui-value-cell">{{ rule['limit'] }}</td>
-                        <td class="tcgui-input-cell"><input type="number" name="Limit" size="5"></td>
-                    </tr>
-                </tbody>
-                </table>
-                <input class="pure-button pure-button-primary" type="submit" value="Apply {{ rule['name'] }} Rules">
-            </form>
-            <form method="POST" action="{{ url_for('remove_rule', interface= rule['name']) }}">
-                <input class="button-remove pure-button" type="submit" value="Remove {{ rule['name'] }} Rules">
-            </form>
-        </div>
-    {% endfor %}
+
+  <h2>TCGUI Configuration</h2>
+    <div id="messages" class="messages"></div>
+    <div>
+      <form class="ajax-form" method="POST" action="{{ url_for('remove_all') }}">
+        <input class="button-remove pure-button" type="submit" value="Clear All">
+      </form>
+    </div>
+     {% with messages = get_flashed_messages() %}
+       {% if messages %}
+         <div id="messages" class="messages">
+	   {% for message in messages %}
+	     {{ message }}
+	   {% endfor %}
+         </div>
+       {% endif %}
+    {% endwith %}
+  <div class="row">
+    <div class="column">
+    <form class="ajax-form" method="POST" action="{{ url_for('import_settings') }}">
+        <span>Enter settings as JSON (recommended)</span>
+        <textarea id="settings" name="Settings">{{ settings }}</textarea>
+	<div>
+          <input class="pure-button pure-button-primary" type="submit" value="Import">
+	</div>
+    </form>
+    </div>
+    <div class="column">
+      <form class="ajax-form" method="POST" action="{{ url_for('add_rule') }}">
+          <span>Or add/update single rules</span>
+          <table class="pure-table">
+              <thead>
+                  <tr>
+                      <th>Name</th>
+                      <th>Value</th>
+                      <th>Option</th>
+                  </tr>
+              </thead>
+              <tbody>
+              <tr>
+                  <td>Interface</td>
+                  <td class="tcgui-input-cell">
+                      <select name="Interface">
+                          {% for interface in interfaces  %}
+                          <option value="{{ interface }}">{{ interface }}</option>
+                          {% endfor %}
+                      </select>
+                  </td>
+                  <td></td>
+              </tr>
+              <tr>
+                  <td>Direction</td>
+                  <td class="tcgui-input-cell">
+                      <select name="Direction">
+                          <option value="outgoing">outgoing</option>
+                          <option value="incoming">incoming</option>
+                      </select>
+                  </td>
+                  <td></td>
+              </tr>
+              <tr>
+                  <td>Network</td>
+                  <td class="tcgui-input-cell">
+                      <input type="text" name="Network" placeholder="172.17.0.1/32">
+                  </td>
+                  <td class="tcgui-input-cell">
+                      <select name="NetworkType">
+                          <option value="source">source</option>
+                          <option value="destination">destination</option>
+                      </select>
+                  </td>
+              </tr>
+              <tr>
+                  <td>Rate</td>
+                  <td class="tcgui-input-cell">
+                      <input type="number" name="Rate" placeholder="10">
+                  </td>
+                  <td class="tcgui-input-cell">
+                      <select name="rate_unit">
+                          {% for unit in units %}
+                          <option value="{{ unit }}"{% if unit == standard_unit %} selected{% endif %}>{{ unit }}</option>
+                          {% endfor %}
+                      </select>
+                  </td>
+              </tr>
+              <tr>
+                  <td>Delay</td>
+                  <td class="tcgui-input-cell">
+                    <input type="number" name="Delay" placeholder="500"> ms
+                  </td>
+                  <td class="tcgui-input-cell">±<input type="number" name="DelayVariance" placeholder="100"> ms</td>
+              </tr>
+              <tr>
+                  <td>Loss</td>
+                  <td class="tcgui-input-cell"><input type="number" name="Loss" placeholder="5"> %</td>
+                  <td></td>
+              </tr>
+              <tr>
+                  <td>Duplicate</td>
+                  <td class="tcgui-input-cell"><input type="number" name="Duplicate" placeholder="5"> %</td>
+                  <td></td>
+              </tr>
+              <tr>
+                  <td>Reorder</td>
+                  <td class="tcgui-input-cell"><input type="number" name="Reorder" placeholder="2"> %</td>
+                  <td></td>
+              </tr>
+              <tr>
+                  <td>Corrupt</td>
+                  <td class="tcgui-input-cell"><input type="number" name="Corrupt" placeholder="1"> %</td>
+                  <td></td>
+              </tr>
+          </tbody>
+          </table>
+          <input class="pure-button pure-button-primary" type="submit" value="Add / Update">
+      </form>
+      </div>
+    </div>
 </div>
 <script type="text/javascript">
+
+    function hideMessages() {
+      var messages = document.getElementById('messages');
+      if (messages) {
+        messages.style.display='none';
+      }
+    }
+
 
     var x = document.getElementsByClassName("tcgui-value-cell");
     var i;
@@ -98,6 +146,42 @@
         }
         
     } 
+
+  const forms = document.querySelectorAll("form.ajax-form");
+  
+  forms.forEach(function(form) {
+
+    form.addEventListener("submit", e => {
+      e.preventDefault();
+      const fd = new FormData(form);
+      const xhr = new XMLHttpRequest();
+      xhr.addEventListener("load", e => {
+          if (xhr.status === 200) {
+            document.getElementById('messages').innerHTML = "Settings updated";
+            document.getElementById('settings').value = e.target.responseText;
+          } else {
+            document.getElementById('messages').innerHTML = "Bad request (check format)";
+          }
+          window.setTimeout("hideMessages()", 3000);
+      });
+      xhr.addEventListener("error", e => {
+          //var msg = "Modifying the network interface used for the current HTTP request required a page reload. Reloading page in 3 seconds..";
+          var msg = "Page reload required. Reloading in 3 seconds..";
+          document.getElementById('messages').innerHTML = msg;
+
+	  window.setTimeout("location.reload()", 3000);
+      });
+      xhr.addEventListener("loadend", e => {
+          document.getElementById('messages').style.display = "block";
+      });
+
+      xhr.open("POST", form.action);
+      xhr.send(fd);
+    });
+
+  });
+
+
 </script>
 <style>
     th,td { 
@@ -105,8 +189,30 @@
 
     }
 
+    .row {
+        display: flex;
+    }
+
+    .column {
+        flex: 50%;
+        margin-right: 10px;
+    }
+
+    form {
+        display: inline;
+    }
+
     .tcgui-input-cell {
         text-align: left;
+    }
+
+    .tcgui-input-cell select, input[type="number"], input[type="text"] {
+        width: 125px;
+    }
+
+    textarea, table {
+        width: 100%;
+        height: 100%;
     }
 
     .button-remove {
@@ -116,6 +222,14 @@
 
     .pure-button {
         margin-top: .5em;
+    }
+
+    .messages {
+        font-weight: bold;
+        text-align: left;
+        background-color: gray;
+        padding: 0.5em;
+        display: none;
     }
 </style>
 </body>

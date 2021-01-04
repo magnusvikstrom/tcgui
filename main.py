@@ -2,27 +2,26 @@ import subprocess
 import os
 import re
 import argparse
+import json
+import tempfile
 
-from flask import Flask, render_template, redirect, request, url_for
+from flask import Flask, render_template, request, url_for, flash, abort
 
 
 BANDWIDTH_UNITS = [
-    "bit",  # Bits per second
-    "kbit",  # Kilobits per second
-    "mbit",  # Megabits per second
-    "gbit",  # Gigabits per second
-    "tbit",  # Terabits per second
-    "bps",  # Bytes per second
-    "kbps",  # Kilobytes per second
-    "mbps",  # Megabytes per second
-    "gbps",  # Gigabytes per second
-    "tbps",  # Terabytes per second
+    "bps",  # Bits per second
+    "kbps",  # Kilobits per second
+    "mbps",  # Megabits per second
+    "gbps",  # Gigabits per second
+    "tbps",  # Terabits per second
 ]
 
-STANDARD_UNIT = "mbit"
+STANDARD_UNIT = "mbps"
 
 
 app = Flask(__name__)
+app.secret_key = b'_5#ienteuF4Q8z\n\xec]/'
+
 pattern = None
 dev_list = None
 
@@ -56,136 +55,137 @@ def parse_arguments():
 
 @app.route("/")
 def main():
-    rules = get_active_rules()
+    settings = get_settings()
+
     return render_template(
-        "main.html", rules=rules, units=BANDWIDTH_UNITS, standard_unit=STANDARD_UNIT
+        "main.html", units=BANDWIDTH_UNITS, standard_unit=STANDARD_UNIT, settings=settings, interfaces=dev_list.split(" ")
     )
 
 
-@app.route("/new_rule/<interface>", methods=["POST"])
-def new_rule(interface):
+@app.route("/import_settings", methods=["POST"])
+def import_settings():
+    try:
+        settings = request.form["Settings"]
+        settings = json.loads(settings)
+    except ValueError as e:
+        abort(400, "Error")
+        #flash("Invalid JSON, previous settings restored")
+
+    #f = open("settings.json","r")
+    #backup_settings = json.load(f)
+    #f.close()
+
+    #command = "docker run --rm --cap-add NET_ADMIN --net=host --name tcconfig -v /srv/ansur/tcgui/settings.json:/settings.json -t --entrypoint tcset thombashi/tcconfig --import-setting settings.json"
+    print(settings)
+
+    try:
+        #f = open("settings.json","w+")
+        delete_all()
+        f = tempfile.NamedTemporaryFile(delete = False, mode = "w")
+        f.write(json.dumps(settings, indent=4))
+        f.close()
+        command = "tcset --import-setting %s" % f.name
+        command = command.split(" ")
+        proc = subprocess.check_output(command, stderr=subprocess.STDOUT)
+        os.unlink(f.name)
+        flash("Successfully updated settings")
+    except subprocess.CalledProcessError as e:
+        print(e.output)
+        #f = open("settings.json","w+")
+        #f.write(json.dumps(backup_settings, indent=4))
+        #f.close()
+        abort(400, "Error")
+        #flash("Invalid settings, previous settings restored")
+        # There was an error - command exited with non-zero code
+
+
+    return get_settings()
+
+@app.route("/remove_all", methods=["POST"])
+def remove_all():
+    delete_all()
+
+    flash("Successfully cleared settings")
+    return get_settings()
+
+@app.route("/add_rule", methods=["POST"])
+def add_rule():
+    print("add_rule")
+    interface = request.form["Interface"]
+    direction = request.form["Direction"]
+    network = request.form["Network"]
+    network_type = request.form["NetworkType"]
     delay = request.form["Delay"]
     delay_variance = request.form["DelayVariance"]
     loss = request.form["Loss"]
-    loss_correlation = request.form["LossCorrelation"]
     duplicate = request.form["Duplicate"]
     reorder = request.form["Reorder"]
-    reorder_correlation = request.form["ReorderCorrelation"]
     corrupt = request.form["Corrupt"]
-    limit = request.form["Limit"]
     rate = request.form["Rate"]
     rate_unit = request.form["rate_unit"]
 
-    # remove old setup
-    command = "tc qdisc del dev %s root netem" % interface
-    command = command.split(" ")
-    proc = subprocess.Popen(command)
-    proc.wait()
-
+    print("direction %s" % direction)
     # apply new setup
-    command = "tc qdisc add dev %s root netem" % interface
+    command = "tcset --change %s" % (interface)
+    if direction != "":
+        command += " --direction %s" % direction
+    if network != "":
+        if network_type == "source":
+            command += " --src-network %s" % network
+        else:
+            command += " --dst-network %s" % network
     if rate != "":
-        command += " rate %s%s" % (rate, rate_unit)
+        command += " --rate %s%s" % (rate, rate_unit)
     if delay != "":
-        command += " delay %sms" % delay
+        command += " --delay %sms" % delay
         if delay_variance != "":
-            command += " %sms" % delay_variance
+            command += " --delay-distro %sms" % delay_variance
     if loss != "":
-        command += " loss %s%%" % loss
-        if loss_correlation != "":
-            command += " %s%%" % loss_correlation
+        #command += " loss %s%%" % loss
+        command += " --loss %s" % loss
     if duplicate != "":
-        command += " duplicate %s%%" % duplicate
+        command += " --duplicate %s" % duplicate
     if reorder != "":
-        command += " reorder %s%%" % reorder
-        if reorder_correlation != "":
-            command += " %s%%" % reorder_correlation
+        #command += " reorder %s%%" % reorder
+        command += " --reordering %s" % reorder
     if corrupt != "":
-        command += " corrupt %s%%" % corrupt
-    if limit != "":
-        command += " limit %s" % limit
+        command += " --corrupt %s" % corrupt
     print(command)
-    command = command.split(" ")
-    proc = subprocess.Popen(command)
-    proc.wait()
-    return redirect(url_for("main"))
+
+    try:
+        command = command.split(" ")
+        proc = subprocess.check_output(command, stderr=subprocess.STDOUT)
+        flash("Successfully updated settings")
+    except subprocess.CalledProcessError as e:
+        print(e.output)
+        flash("Invalid settings")
+
+    return get_settings()
 
 
-@app.route("/remove_rule/<interface>", methods=["POST"])
-def remove_rule(interface):
-    # remove old setup
-    command = "tc qdisc del dev %s root netem" % interface
-    command = command.split(" ")
-    proc = subprocess.Popen(command)
-    proc.wait()
-    return redirect(url_for("main"))
+def get_settings(as_string = True):
+    print(dev_list)
+    settings = {}
 
+    for dev in dev_list.split(" "):
+      command = "tcshow %s" % dev
+      command = command.split(" ")
+      proc = subprocess.Popen(command, stdout=subprocess.PIPE)
+      output = proc.communicate()[0].decode()
+      settings[dev] = json.loads(output)[dev]
 
-def get_active_rules():
-    proc = subprocess.Popen(["tc", "qdisc"], stdout=subprocess.PIPE)
-    output = proc.communicate()[0].decode()
-    lines = output.split("\n")[:-1]
-    rules = []
-    dev = set()
-    for line in lines:
-        arguments = line.split()
-        rule = parse_rule(arguments)
-        if rule["name"] and rule["name"] not in dev:
-            rules.append(rule)
-            dev.add(rule["name"])
-    return rules
+    print("Settings: %s " % settings)
 
+    if as_string:
+      return json.dumps(settings, indent=4)
+    else:
+      return settings
 
-def parse_rule(split_rule):
-    rule = {
-        "name": None,
-        "rate": None,
-        "delay": None,
-        "delayVariance": None,
-        "loss": None,
-        "lossCorrelation": None,
-        "duplicate": None,
-        "reorder": None,
-        "reorderCorrelation": None,
-        "corrupt": None,
-        "limit": None,
-    }
-    i = 0
-    for argument in split_rule:
-        if argument == "dev":
-            # Both regex pattern and dev name can be given
-            # An interface could match the pattern and/or
-            # be in the interface list
-            if pattern is None and dev_list is None:
-                rule["name"] = split_rule[i + 1]
-            if pattern:
-                if pattern.match(split_rule[i + 1]):
-                    rule["name"] = split_rule[i + 1]
-            if dev_list:
-                if split_rule[i + 1] in dev_list:
-                    rule["name"] = split_rule[i + 1]
-        elif argument == "rate":
-            rule["rate"] = split_rule[i + 1].split("Mbit")[0]
-        elif argument == "delay":
-            rule["delay"] = split_rule[i + 1]
-            if len(split_rule) > (i + 2) and "ms" in split_rule[i + 2]:
-                rule["delayVariance"] = split_rule[i + 2]
-        elif argument == "loss":
-            rule["loss"] = split_rule[i + 1]
-            if len(split_rule) > (i + 2) and "%" in split_rule[i + 2]:
-                rule["lossCorrelation"] = split_rule[i + 2]
-        elif argument == "duplicate":
-            rule["duplicate"] = split_rule[i + 1]
-        elif argument == "reorder":
-            rule["reorder"] = split_rule[i + 1]
-            if len(split_rule) > (i + 2) and "%" in split_rule[i + 2]:
-                rule["reorderCorrelation"] = split_rule[i + 2]
-        elif argument == "corrupt":
-            rule["corrupt"] = split_rule[i + 1]
-        elif argument == "limit":
-            rule["limit"] = split_rule[i + 1]
-        i += 1
-    return rule
+def delete_all():
+    for dev in dev_list.split(" "):
+      command = "tcdel --all %s" % dev
+      command = command.split(" ")
+      proc = subprocess.Popen(command, stdout=subprocess.PIPE)
 
 
 if __name__ == "__main__":
@@ -220,4 +220,5 @@ if __name__ == "__main__":
     if not args.debug:
         app_args["debug"] = False
     app.debug = True
+    app.tc_cmd = "tc"
     app.run(**app_args)

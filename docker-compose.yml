@@ -1,11 +1,15 @@
 version: '3.7'
 services:
-  server:
-    build: .
+  tcgui:
+    image: magnusvikstrom/tcgui
+    container_name: tcgui
     environment:
       TCGUI_IP: 0.0.0.0
       TCGUI_PORT: 5000
-    ports:
-      - '5000:5000'
+      TCGUI_DEV: wlp6s0
+      PYTHONUNBUFFERED: 1
+    network_mode: host
     cap_add:
       - NET_ADMIN
+    expose:
+      - 5000
