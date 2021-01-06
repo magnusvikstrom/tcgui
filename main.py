@@ -20,7 +20,7 @@ STANDARD_UNIT = "mbps"
 
 
 app = Flask(__name__)
-app.secret_key = b'_5#ienteuF4Q8z\n\xec]/'
+app.secret_key = os.environ.get('SECRET_KEY', 'dev')
 
 pattern = None
 dev_list = None
@@ -69,17 +69,8 @@ def import_settings():
         settings = json.loads(settings)
     except ValueError as e:
         abort(400, "Error")
-        #flash("Invalid JSON, previous settings restored")
-
-    #f = open("settings.json","r")
-    #backup_settings = json.load(f)
-    #f.close()
-
-    #command = "docker run --rm --cap-add NET_ADMIN --net=host --name tcconfig -v /srv/ansur/tcgui/settings.json:/settings.json -t --entrypoint tcset thombashi/tcconfig --import-setting settings.json"
-    print(settings)
 
     try:
-        #f = open("settings.json","w+")
         delete_all()
         f = tempfile.NamedTemporaryFile(delete = False, mode = "w")
         f.write(json.dumps(settings, indent=4))
@@ -91,12 +82,7 @@ def import_settings():
         flash("Successfully updated settings")
     except subprocess.CalledProcessError as e:
         print(e.output)
-        #f = open("settings.json","w+")
-        #f.write(json.dumps(backup_settings, indent=4))
-        #f.close()
         abort(400, "Error")
-        #flash("Invalid settings, previous settings restored")
-        # There was an error - command exited with non-zero code
 
 
     return get_settings()
@@ -110,7 +96,6 @@ def remove_all():
 
 @app.route("/add_rule", methods=["POST"])
 def add_rule():
-    print("add_rule")
     interface = request.form["Interface"]
     direction = request.form["Direction"]
     network = request.form["Network"]
@@ -124,7 +109,6 @@ def add_rule():
     rate = request.form["Rate"]
     rate_unit = request.form["rate_unit"]
 
-    print("direction %s" % direction)
     # apply new setup
     command = "tcset --change %s" % (interface)
     if direction != "":
@@ -141,12 +125,10 @@ def add_rule():
         if delay_variance != "":
             command += " --delay-distro %sms" % delay_variance
     if loss != "":
-        #command += " loss %s%%" % loss
         command += " --loss %s" % loss
     if duplicate != "":
         command += " --duplicate %s" % duplicate
     if reorder != "":
-        #command += " reorder %s%%" % reorder
         command += " --reordering %s" % reorder
     if corrupt != "":
         command += " --corrupt %s" % corrupt
@@ -164,7 +146,6 @@ def add_rule():
 
 
 def get_settings(as_string = True):
-    print(dev_list)
     settings = {}
 
     for dev in dev_list.split(" "):
