@@ -4,6 +4,7 @@ import re
 import argparse
 import json
 import tempfile
+import time
 
 from flask import Flask, render_template, request, url_for, flash, abort
 
@@ -92,6 +93,10 @@ def remove_all():
     delete_all()
 
     flash("Successfully cleared settings")
+
+    # Wait a while before getting settings to avoid empty json response
+    time.sleep(0.5)
+
     return get_settings()
 
 @app.route("/add_rule", methods=["POST"])
