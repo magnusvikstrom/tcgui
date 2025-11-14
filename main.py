@@ -149,6 +149,45 @@ def add_rule():
 
     return get_settings()
 
+@app.route("/stats", methods=["GET"])
+def stats():
+    settings = {}
+    for dev in dev_list.split(" "):
+        # Egress stats
+        try:
+            output = subprocess.check_output(["tc", "-j", "-s", "qdisc", "show", "dev", dev]).decode()
+            egress_stats = json.loads(output)
+        except subprocess.CalledProcessError:
+            egress_stats = []
+
+        # Detect IFB for ingress
+        ingress_stats = []
+        ifb_name = None
+        # Look for ifb* that contains the interface name or just the first ifb*
+        for link in os.listdir("/sys/class/net"):
+            if link.startswith("ifb") and dev in link:
+                ifb_name = link
+                break
+        # fallback: first ifb*
+        if not ifb_name:
+            for link in os.listdir("/sys/class/net"):
+                if link.startswith("ifb"):
+                    ifb_name = link
+                    break
+
+        if ifb_name:
+            try:
+                output_ifb = subprocess.check_output(["tc", "-j", "-s", "qdisc", "show", "dev", ifb_name]).decode()
+                ingress_stats = json.loads(output_ifb)
+            except subprocess.CalledProcessError:
+                ingress_stats = []
+
+        settings[dev] = {
+            "outgoing": egress_stats,
+            "incoming": ingress_stats
+        }
+
+    return json.dumps(settings, indent=4)
 
 def get_settings(as_string = True):
     settings = {}
