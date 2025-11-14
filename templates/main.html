@@ -16,6 +16,7 @@
       <form class="ajax-form" method="POST" action="{{ url_for('remove_all') }}">
         <input class="button-remove pure-button" type="submit" value="Clear All">
       </form>
+      <button class="pure-button pure-button-primary" onclick="showStatsModal()">Show Stats</button>
     </div>
      {% with messages = get_flashed_messages() %}
        {% if messages %}
@@ -128,6 +129,158 @@
       </div>
     </div>
 </div>
+
+<!-- Stats Modal -->
+<div id="statsModal" class="modal" style="display:none; position:fixed; top:10%; left:50%; transform:translateX(-50%); background:white; border:1px solid #333; padding:1em; z-index:1000; max-width:1200px; overflow:auto;">
+  <h3>Traffic Control Stats</h3>
+  <button class="pure-button pure-button-primary" onclick="fetchAndRenderStats()">Refresh</button>
+  <label><input type="checkbox" id="autoRefresh" checked> Auto refresh</label>
+  <label>Interval: <input type="number" id="refreshInterval" value="3" min="1" style="width:50px;">s</label>
+  <label><input type="checkbox" id="showAllQdiscs"> Show all qdiscs</label>
+  <label><input type="checkbox" id="showDebugOutput"> Show debug output</label>
+  <table id="statsTable" class="pure-table pure-table-bordered" style="margin-top:1em; width:100%; table-layout:fixed;">
+    <thead>
+      <tr>
+        <th title="Network interface">Interface</th>
+        <th title="HTB / Netem / Ingress type">Kind</th>
+        <th title="Qdisc handle">Handle</th>
+        <th title="Parent qdisc">Parent</th>
+        <th title="Bytes sent/received">Bytes</th>
+        <th title="Packets sent/received">Packets</th>
+        <th title="Packets dropped">Drops</th>
+        <th title="Packets exceeding limits">Overlimits</th>
+        <th title="Packets requeued">Requeues</th>
+        <th title="Backlog bytes/packets">Backlog</th>
+        <th title="Queue length">Qlen</th>
+        <th title="Configuration summary (hover to see full options)">Config</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+  <pre id="debugOutput" style="background:#eee; padding:1em; display:none;"></pre>
+  <button class="pure-button" onclick="document.getElementById('statsModal').style.display='none'">Close</button>
+</div>
+
+<script>
+let autoRefreshTimer = null;
+
+function showStatsModal() {
+    document.getElementById('statsModal').style.display = 'block';
+    fetchAndRenderStats();
+    startAutoRefresh();
+}
+
+function fetchAndRenderStats() {
+    fetch("/stats")
+        .then(r => r.json())
+        .then(data => renderStats(data))
+        .catch(e => console.error("Error fetching stats:", e));
+}
+
+function renderStats(data) {
+    const tbody = document.querySelector("#statsTable tbody");
+    tbody.innerHTML = "";
+
+    const showAll = document.getElementById('showAllQdiscs').checked;
+    const debugOutput = document.getElementById('debugOutput');
+    debugOutput.innerText = JSON.stringify(data, null, 2);
+
+    for (const dev in data) {
+        ["outgoing","incoming"].forEach(dir => {
+            if(!data[dev][dir]) return;
+            data[dev][dir].forEach(q => {
+                if(!showAll && (q.kind === "htb" || q.kind === "ingress")) return;
+
+                // summarize config
+                let configSummary = [];
+                if (q.options) {
+                    if(q.options.rate) configSummary.push(`rate:${q.options.rate}`);
+                    if(q.options.limit) configSummary.push(`limit:${q.options.limit}`);
+                    if(q.options.delay && q.options.delay.delay) configSummary.push(`delay:${q.options.delay.delay}ms`);
+                    if(q.options.loss) configSummary.push(`loss:${q.options.loss}%`);
+                    if(q.options.duplicate) configSummary.push(`dup:${q.options.duplicate}%`);
+                    if(q.options.reorder) configSummary.push(`reorder:${q.options.reorder}%`);
+                    if(q.options.corrupt) configSummary.push(`corrupt:${q.options.corrupt}%`);
+                }
+                const fullConfig = JSON.stringify(q.options);
+
+                let row = `<tr>
+                    <td>${dev} (${dir})</td>
+                    <td>${q.kind || '-'}</td>
+                    <td>${q.handle || '-'}</td>
+                    <td>${q.parent || '-'}</td>
+                    <td>${q.bytes || 0}</td>
+                    <td>${q.packets || 0}</td>
+                    <td>${q.drops || 0}</td>
+                    <td>${q.overlimits || 0}</td>
+                    <td>${q.requeues || 0}</td>
+                    <td>${q.backlog || 0}</td>
+                    <td>${q.qlen || 0}</td>
+                    <td title='${fullConfig}'>${configSummary.join(", ") || "-"}</td>
+                </tr>`;
+                tbody.innerHTML += row;
+            });
+        });
+    }
+
+    debugOutput.style.display = document.getElementById('showDebugOutput').checked ? 'block' : 'none';
+}
+
+function startAutoRefresh() {
+    if(autoRefreshTimer) clearInterval(autoRefreshTimer);
+    const interval = parseInt(document.getElementById('refreshInterval').value) * 1000 || 3000;
+    if(document.getElementById('autoRefresh').checked) {
+        autoRefreshTimer = setInterval(fetchAndRenderStats, interval);
+    }
+}
+
+document.getElementById('autoRefresh').addEventListener('change', startAutoRefresh);
+document.getElementById('refreshInterval').addEventListener('change', startAutoRefresh);
+document.getElementById('showAllQdiscs').addEventListener('change', fetchAndRenderStats);
+document.getElementById('showDebugOutput').addEventListener('change', fetchAndRenderStats);
+</script>
+
+
+<style>
+/* Modal basic styling */
+.modal { box-shadow: 0 0 10px rgba(0,0,0,0.3); border-radius:5px; }
+.modal h3 { margin-top:0; }
+.modal table th, .modal table td { text-align:center; padding:0.3em; font-size:0.9em; }
+.modal table th { background:#eee; }
+</style>
+
+
+<style>
+.modal-content button, .modal-content input[type=number], .modal-content input[type=checkbox], .modal-content label {
+  margin-right:10px;
+}
+
+.modal-content h2 {
+  margin-top:0;
+}
+
+.pure-button-primary {
+  background-color: #2b77d0;
+  color: #fff;
+}
+</style>
+
+<style>
+.modal-content button, .modal-content input[type=number], .modal-content input[type=checkbox], .modal-content label {
+  margin-right:10px;
+}
+
+.modal-content h2 {
+  margin-top:0;
+}
+
+.pure-button-primary {
+  background-color: #2b77d0;
+  color: #fff;
+}
+</style>
+
+
 <script type="text/javascript">
 
     function hideMessages() {
