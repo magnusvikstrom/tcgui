@@ -10,6 +10,8 @@ services:
       TCGUI_DEV: wlp6s0
       PYTHONUNBUFFERED: 1
     network_mode: host
+    ports:
+      - '5000:5000'
     cap_add:
       - NET_ADMIN
     expose:
