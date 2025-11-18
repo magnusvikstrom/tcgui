@@ -17,6 +17,9 @@
         <input class="button-remove pure-button" type="submit" value="Clear All">
       </form>
       <button class="pure-button pure-button-primary" onclick="showStatsModal()">Show Stats</button>
+      <!-- Help / Readme Button -->
+      <button id="helpButton" class="pure-button">Readme</button>
+
     </div>
      {% with messages = get_flashed_messages() %}
        {% if messages %}
@@ -384,6 +387,79 @@ document.getElementById('showDebugOutput').addEventListener('change', fetchAndRe
         padding: 0.5em;
         display: none;
     }
+</style>
+
+<!-- Modal for displaying Markdown -->
+<div id="helpModal" class="helpModal" style="display:none;">
+  <div class="modal-content">
+    <span class="close" id="helpClose">&times;</span>
+    <h2>Readme</h2>
+    <div id="helpContent" style="overflow-y:auto; max-height:70vh;"></div>
+  </div>
+</div>
+
+<!-- Include marked.js from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+<script>
+document.getElementById("helpButton").onclick = async function() {
+  try {
+    // Fetch markdown from Flask static folder
+    const resp = await fetch('/static/README.md');
+    if(!resp.ok) throw new Error("Failed to load README.md");
+    const mdText = await resp.text();
+
+    // Convert markdown to HTML
+    document.getElementById("helpContent").innerHTML = marked.parse(mdText);
+
+    // Show modal
+    document.getElementById("helpModal").style.display = "block";
+  } catch(err) {
+    alert("Error loading help file: " + err.message);
+  }
+};
+
+document.getElementById("helpClose").onclick = function() {
+  document.getElementById("helpModal").style.display = "none";
+};
+
+// Close modal when clicking outside content
+window.onclick = function(event) {
+  if(event.target === document.getElementById("helpModal")) {
+    document.getElementById("helpModal").style.display = "none";
+  }
+};
+</script>
+
+<style>
+.helpModal {
+  display: none;
+  position: fixed;
+  z-index: 1000;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0,0,0,0.5);
+}
+.modal-content {
+  background-color: #fff;
+  margin: 5% auto;
+  padding: 1em;
+  border-radius: 8px;
+  width: 90%;
+  max-width: 1000px;
+}
+.close {
+  float: right;
+  font-size: 1.5em;
+  font-weight: bold;
+  cursor: pointer;
+}
+#helpContent {
+  line-height: 1.5;
+  font-family: sans-serif;
+}
 </style>
 </body>
 </html>
