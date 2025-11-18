@@ -149,45 +149,60 @@ def add_rule():
 
     return get_settings()
 
-@app.route("/stats", methods=["GET"])
+def detect_ifb(dev):
+    try:
+        out = subprocess.check_output(
+            ["tc", "filter", "show", "dev", dev, "ingress"],
+            stderr=subprocess.STDOUT
+        ).decode()
+
+        # Find mirred redirect target(s)
+        matches = re.findall(r"mirred.*?device (\w+)", out)
+
+        if matches:
+            return matches[0]  # first IFB device
+    except:
+        pass
+
+    return None
+
+@app.route("/stats")
 def stats():
-    settings = {}
+    result = {}
+
     for dev in dev_list.split(" "):
-        # Egress stats
+        result[dev] = {}
+
+        # Outgoing is always on the main device
         try:
-            output = subprocess.check_output(["tc", "-j", "-s", "qdisc", "show", "dev", dev]).decode()
-            egress_stats = json.loads(output)
-        except subprocess.CalledProcessError:
-            egress_stats = []
+            out = subprocess.check_output(
+                ["tc", "-j", "-s", "qdisc", "show", "dev", dev],
+                stderr=subprocess.STDOUT
+            ).decode()
+            q = json.loads(out)
+            result[dev]["outgoing"] = q
+        except Exception as e:
+            print("Stats outgoing error:", e)
+            result[dev]["outgoing"] = []
 
-        # Detect IFB for ingress
-        ingress_stats = []
-        ifb_name = None
-        # Look for ifb* that contains the interface name or just the first ifb*
-        for link in os.listdir("/sys/class/net"):
-            if link.startswith("ifb") and dev in link:
-                ifb_name = link
-                break
-        # fallback: first ifb*
-        if not ifb_name:
-            for link in os.listdir("/sys/class/net"):
-                if link.startswith("ifb"):
-                    ifb_name = link
-                    break
+        # Detect IFB device for incoming shaping
+        ifb = detect_ifb(dev)
 
-        if ifb_name:
+        if ifb:
             try:
-                output_ifb = subprocess.check_output(["tc", "-j", "-s", "qdisc", "show", "dev", ifb_name]).decode()
-                ingress_stats = json.loads(output_ifb)
-            except subprocess.CalledProcessError:
-                ingress_stats = []
+                out = subprocess.check_output(
+                    ["tc", "-j", "-s", "qdisc", "show", "dev", ifb],
+                    stderr=subprocess.STDOUT
+                ).decode()
+                q = json.loads(out)
+                result[dev]["incoming"] = q
+            except Exception as e:
+                print("Stats incoming error:", e)
+                result[dev]["incoming"] = []
+        else:
+            result[dev]["incoming"] = []
 
-        settings[dev] = {
-            "outgoing": egress_stats,
-            "incoming": ingress_stats
-        }
-
-    return json.dumps(settings, indent=4)
+    return json.dumps(result)
 
 def get_settings(as_string = True):
     settings = {}
