@@ -199,7 +199,7 @@ function renderStats(data) {
                 if (q.options) {
                     if(q.options.rate) configSummary.push(`rate:${q.options.rate}`);
                     if(q.options.limit) configSummary.push(`limit:${q.options.limit}`);
-                    if(q.options.delay && q.options.delay.delay) configSummary.push(`delay:${q.options.delay.delay}ms`);
+                    if(q.options.delay && q.options.delay.delay) configSummary.push(`delay:${q.options.delay.delay}s`);
                     if(q.options.loss) configSummary.push(`loss:${q.options.loss}%`);
                     if(q.options.duplicate) configSummary.push(`dup:${q.options.duplicate}%`);
                     if(q.options.reorder) configSummary.push(`reorder:${q.options.reorder}%`);
