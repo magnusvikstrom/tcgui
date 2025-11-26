@@ -179,11 +179,36 @@ def stats():
                 ["tc", "-j", "-s", "qdisc", "show", "dev", dev],
                 stderr=subprocess.STDOUT
             ).decode()
-            q = json.loads(out)
-            result[dev]["outgoing"] = q
+            qdiscs = json.loads(out)
         except Exception as e:
             print("Stats outgoing error:", e)
-            result[dev]["outgoing"] = []
+            qdiscs = []
+
+        # Load outgoing classes (needed for rate)
+        class_rate_map = {}
+        try:
+            out_classes = subprocess.check_output(
+                ["tc", "-j", "-s", "class", "show", "dev", dev],
+                stderr=subprocess.STDOUT
+            ).decode()
+            classes = json.loads(out_classes)
+
+            for c in classes:
+                h = c.get("handle")
+                if h and c.get("rate") is not None:
+                    class_rate_map[h] = c["rate"]
+
+        except Exception as e:
+            print("Stats outgoing class error:", e)
+
+        # Merge class rate → qdisc
+        for q in qdiscs:
+            parent = q.get("parent")
+            if parent and parent in class_rate_map:
+                opts = q.setdefault("options", {})
+                opts["rate"] = class_rate_map[parent] * 8
+
+        result[dev]["outgoing"] = qdiscs
 
         # Detect IFB device for incoming shaping
         ifb = detect_ifb(dev)
@@ -194,11 +219,37 @@ def stats():
                     ["tc", "-j", "-s", "qdisc", "show", "dev", ifb],
                     stderr=subprocess.STDOUT
                 ).decode()
-                q = json.loads(out)
-                result[dev]["incoming"] = q
+                qdiscs_in = json.loads(out)
             except Exception as e:
                 print("Stats incoming error:", e)
-                result[dev]["incoming"] = []
+                qdiscs_in = []
+
+            # Load IFB classes (for rate)
+            class_rate_map_in = {}
+            try:
+                out_classes = subprocess.check_output(
+                    ["tc", "-j", "-s", "class", "show", "dev", ifb],
+                    stderr=subprocess.STDOUT
+                ).decode()
+                classes_in = json.loads(out_classes)
+
+                for c in classes_in:
+                    h = c.get("handle")
+                    if h and c.get("rate") is not None:
+                        class_rate_map_in[h] = c["rate"]
+
+            except Exception as e:
+                print("Stats incoming class error:", e)
+
+            # Merge incoming class rate → qdisc
+            for q in qdiscs_in:
+                parent = q.get("parent")
+                if parent and parent in class_rate_map_in:
+                    opts = q.setdefault("options", {})
+                    opts["rate"] = class_rate_map_in[parent] * 8
+
+            result[dev]["incoming"] = qdiscs_in
+
         else:
             result[dev]["incoming"] = []
 
