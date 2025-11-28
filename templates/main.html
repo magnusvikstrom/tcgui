@@ -144,10 +144,7 @@
   <table id="statsTable" class="pure-table pure-table-bordered" style="margin-top:1em; width:100%; table-layout:fixed;">
     <thead>
       <tr>
-        <th title="Network interface">Interface</th>
-        <th title="HTB / Netem / Ingress type">Kind</th>
-        <th title="Qdisc handle">Handle</th>
-        <th title="Parent qdisc">Parent</th>
+        <th title="Rule">Rule</th>
         <th title="Bytes sent/received">Bytes</th>
         <th title="Packets sent/received">Packets</th>
         <th title="Packets dropped">Drops</th>
@@ -197,21 +194,29 @@ function renderStats(data) {
                 // summarize config
                 let configSummary = [];
                 if (q.options) {
-                    if(q.options.rate) configSummary.push(`rate:${q.options.rate}`);
+                    if(q.options.rate) {
+                        if (q.options.rate < 1000000) rateDisplay = q.options.rate/1000 + 'Kpbs';
+                        else if (q.options.rate < 1000000000) rateDisplay = q.options.rate/1000000 + 'Mbps';
+                        else rateDisplay = q.options.rate/1000000000 + 'Gbps';
+                        configSummary.push(`rate:${rateDisplay}`);
+                    }
                     if(q.options.limit) configSummary.push(`limit:${q.options.limit}`);
-                    if(q.options.delay && q.options.delay.delay) configSummary.push(`delay:${q.options.delay.delay}s`);
-                    if(q.options.loss) configSummary.push(`loss:${q.options.loss}%`);
-                    if(q.options.duplicate) configSummary.push(`dup:${q.options.duplicate}%`);
-                    if(q.options.reorder) configSummary.push(`reorder:${q.options.reorder}%`);
-                    if(q.options.corrupt) configSummary.push(`corrupt:${q.options.corrupt}%`);
+                    if(q.options.delay && q.options.delay.delay) configSummary.push(`delay:${q.options.delay.delay*1000}ms`);
+                    if(q.options['loss-random']) configSummary.push(`loss:${q.options['loss-random'].loss*100}%`);
+                    if(q.options.duplicate) configSummary.push(`dup:${q.options.duplicate.duplicate*100}%`);
+                    if(q.options.reorder) configSummary.push(`reorder:${q.options.reorder.reorder*100}%`);
+                    if(q.options.corrupt) configSummary.push(`corrupt:${q.options.corrupt.corrupt*100}%`);
                 }
                 const fullConfig = JSON.stringify(q.options);
 
+		let combinedInfo = `
+                    <div><strong>${dev}</strong> (${dir})</div>
+                    <div>${q.handle ? 'handle: ' + q.handle : ''}</div>
+                    <div>${q.kind ? 'kind: ' + q.kind : ''}</div>
+                    <div>${q.parent ? 'parent: ' + q.parent : ''}</div>`;
+
                 let row = `<tr>
-                    <td>${dev} (${dir})</td>
-                    <td>${q.kind || '-'}</td>
-                    <td>${q.handle || '-'}</td>
-                    <td>${q.parent || '-'}</td>
+                    <td>${combinedInfo}</td>
                     <td>${q.bytes || 0}</td>
                     <td>${q.packets || 0}</td>
                     <td>${q.drops || 0}</td>
@@ -248,7 +253,7 @@ document.getElementById('showDebugOutput').addEventListener('change', fetchAndRe
 /* Modal basic styling */
 .modal { box-shadow: 0 0 10px rgba(0,0,0,0.3); border-radius:5px; }
 .modal h3 { margin-top:0; }
-.modal table th, .modal table td { text-align:center; padding:0.3em; font-size:0.9em; }
+.modal table th, .modal table td { text-align:center; padding:0.2em; font-size:0.7em; }
 .modal table th { background:#eee; }
 </style>
 
