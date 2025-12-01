@@ -113,6 +113,7 @@ def add_rule():
     corrupt = request.form["Corrupt"]
     rate = request.form["Rate"]
     rate_unit = request.form["rate_unit"]
+    limit = request.form["Limit"]
 
     # apply new setup
     command = "tcset --change %s" % (interface)
@@ -137,6 +138,8 @@ def add_rule():
         command += " --reordering %s" % reorder
     if corrupt != "":
         command += " --corrupt %s" % corrupt
+    if limit != "":
+        command += " --limit %s" % limit
     print(command)
 
     try:
