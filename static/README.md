@@ -50,3 +50,33 @@ The following example limits incoming and outgoing traffic (to from server runni
 }
 ```
 
+
+How traffic control and netem works when used on a local machine for outgoing traffic:
+```
+┌──────────────────────────────────────────────┐
+│          Application / TCP/IP stack          │
+└──────────────────────────────────────────────┘
+                     │
+                     ▼
+            ┌──────────────────┐
+            │     TBF/HTB      │  <-- rate shaping
+            │ rate 128k        │
+            │ burst 16kb       │  (max burst queued)
+            │ latency 400ms    │
+            └──────────────────┘
+                     │
+                     ▼
+            ┌──────────────────┐
+            │      Netem       │  <-- delay, jitter, loss, reorder
+            │ delay 300ms      │
+            │ delay-distro 5ms │
+            │ limit 50         │  (max packets in netem buffer)
+            │ loss 0.2%        │
+            │ corrupt 0.1%     │
+            │ duplicate 0.1%   │
+            │ reordering 0.1%  │
+            └──────────────────┘
+                     │
+                     ▼
+                Physical NIC
+```
