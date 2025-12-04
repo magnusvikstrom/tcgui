@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     iputils-ping \
     net-tools \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install tcconfig==0.30.1
+    && pip install tcconfig==0.29.1
 
 RUN pip3 install Flask
 
