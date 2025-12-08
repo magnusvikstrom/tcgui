@@ -1,7 +1,7 @@
 services:
   tcgui:
     build: .
-    image: magnusvikstrom/tcgui:0.3.1
+    image: magnusvikstrom/tcgui:0.3.2
     container_name: tcgui
     environment:
       TCGUI_IP: 0.0.0.0
