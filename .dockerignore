@@ -1,0 +1,17 @@
+# Ignore everything
+*
+
+# Allow files and directories
+!/LICENSE
+!/README
+!/*.py
+!/templates
+!/static
+!/scripts
+
+# Ignore unnecessary files inside allowed directories
+# This should go after the allowed directories
+**/*~
+**/*.log
+**/.DS_Store
+**/Thumbs.db
