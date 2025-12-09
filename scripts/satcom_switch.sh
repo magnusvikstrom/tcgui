@@ -29,9 +29,12 @@ HIGHLOSS_DURATION=30
 
 OUT_DST_PORT=""
 IN_SRC_PORT=""
+OUT_DST_NET=""
+IN_SRC_NET=""
 
 VERBOSE=0
 REPEAT=1
+SERVER_MODE=0
 
 # -----------------------------
 # Help
@@ -63,7 +66,10 @@ Options:
 
   --dst-port PORT               Outgoing shaping destination port (default: none)
   --src-port PORT               Incoming shaping source port (default: none)
+  --dst-network NET             Outgoing destination network
+  --src-network NET             Incoming source network
 
+  --server                      Enable server-side port/network swapping
   --repeat N                    Repeat baseline→highloss→baseline sequence N times (default: $REPEAT)
 
   --verbose                     Enable verbose output
@@ -96,6 +102,9 @@ while [[ $# -gt 0 ]]; do
         --high-duration) HIGHLOSS_DURATION="$2"; shift 2 ;;
         --dst-port) OUT_DST_PORT="$2"; shift 2 ;;
         --src-port) IN_SRC_PORT="$2"; shift 2 ;;
+        --dst-network) OUT_DST_NET="$2"; shift 2 ;;
+        --src-network) IN_SRC_NET="$2"; shift 2 ;;
+        --server) SERVER_MODE=1; shift ;;
         --repeat) REPEAT="$2"; shift 2 ;;
         --verbose) VERBOSE=1; shift ;;
         --help) print_help; exit 0 ;;
@@ -108,8 +117,21 @@ done
 # -----------------------------
 OUT_EXTRA=()
 IN_EXTRA=()
-[[ -n "$OUT_DST_PORT" ]] && OUT_EXTRA+=(--dst-port "$OUT_DST_PORT")
-[[ -n "$IN_SRC_PORT" ]] && IN_EXTRA+=(--src-port "$IN_SRC_PORT")
+
+if [[ $SERVER_MODE -eq 0 ]]; then
+    [[ -n "$OUT_DST_PORT" ]] && OUT_EXTRA+=(--dst-port "$OUT_DST_PORT")
+    [[ -n "$IN_SRC_PORT" ]] && IN_EXTRA+=(--src-port "$IN_SRC_PORT")
+    [[ -n "$OUT_DST_NET" ]] && OUT_EXTRA+=(--dst-network "$OUT_DST_NET")
+    [[ -n "$IN_SRC_NET" ]] && IN_EXTRA+=(--src-network "$IN_SRC_NET")
+else
+    # outgoing: dst_network + src_port
+    # incoming: src_network + dst_port
+    [[ -n "$OUT_DST_NET" ]] && OUT_EXTRA+=(--dst-network "$OUT_DST_NET")
+    [[ -n "$IN_SRC_PORT" ]] && OUT_EXTRA+=(--src-port "$IN_SRC_PORT")
+    [[ -n "$IN_SRC_NET" ]] && IN_EXTRA+=(--src-network "$IN_SRC_NET")
+    [[ -n "$OUT_DST_PORT" ]] && IN_EXTRA+=(--dst-port "$OUT_DST_PORT")
+fi
+
 
 # -----------------------------
 # Helper: run a tcset command (prints command always; captures stderr in verbose)
@@ -141,8 +163,6 @@ apply_scenario() {
     local action=$9
     shift 9
     local extra_args=("$@")
-
-    local start_ts=$(date +%s.%3N)
 
     # Build command array
     cmd=(tcset "${extra_args[@]}" --direction "$direction" \
@@ -195,7 +215,6 @@ done
 # Cleanup - delete all rules using tcdel
 # -----------------------------
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Deleting all tc rules on $IFACE..."
-# tcdel <device> --all
 echo "[CMD] tcdel $IFACE --all"
 if [[ $VERBOSE -eq 1 ]]; then
     tcdel "$IFACE" --all
