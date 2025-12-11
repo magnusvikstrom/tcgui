@@ -25,7 +25,7 @@ HIGHLOSS_LOSS="70%"
 HIGHLOSS_DUP="0.01%"
 HIGHLOSS_CORRUPT="0.01%"
 HIGHLOSS_LIMIT="200"
-HIGHLOSS_DURATION=30
+HIGHLOSS_DURATION=10
 
 OUT_DST_PORT=""
 IN_SRC_PORT=""
@@ -35,6 +35,9 @@ IN_SRC_NET=""
 VERBOSE=0
 REPEAT=1
 SERVER_MODE=0
+
+BURST_COUNT=2
+BURST_INTERVAL=15
 
 # -----------------------------
 # Help
@@ -72,6 +75,9 @@ Options:
   --server                      Enable server-side port/network swapping
   --repeat N                    Repeat baseline→highloss→baseline sequence N times (default: $REPEAT)
 
+  --burst-count N               Number of high-loss bursts during each repeat (default: $BURST_COUNT)
+  --burst-interval SECONDS      Baseline time between bursts (default: $BURST_INTERVAL)
+
   --verbose                     Enable verbose output
   --help                        Show this help message
 EOF
@@ -106,6 +112,9 @@ while [[ $# -gt 0 ]]; do
         --src-network) IN_SRC_NET="$2"; shift 2 ;;
         --server) SERVER_MODE=1; shift ;;
         --repeat) REPEAT="$2"; shift 2 ;;
+        --burst-count) BURST_COUNT="$2"; shift 2 ;;
+        --burst-interval) BURST_INTERVAL="$2"; shift 2 ;;
+
         --verbose) VERBOSE=1; shift ;;
         --help) print_help; exit 0 ;;
         *) echo "Unknown option: $1"; exit 1 ;;
@@ -131,7 +140,6 @@ else
     [[ -n "$IN_SRC_NET" ]] && IN_EXTRA+=(--src-network "$IN_SRC_NET")
     [[ -n "$OUT_DST_PORT" ]] && IN_EXTRA+=(--dst-port "$OUT_DST_PORT")
 fi
-
 
 # -----------------------------
 # Helper: run a tcset command (prints command always; captures stderr in verbose)
@@ -164,18 +172,15 @@ apply_scenario() {
     shift 9
     local extra_args=("$@")
 
-    # Build command array
     cmd=(tcset "${extra_args[@]}" --direction "$direction" \
          --rate "$rate" --delay "$delay" --delay-distro "$delay_distro" \
          --loss "$loss" --duplicate "$dup" --corrupt "$corrupt" \
          --limit "$limit" "$action" "$IFACE")
 
-    # One-line combined log
     local timestamp="[$(date +'%Y-%m-%d %H:%M:%S')]"
     local cmd_str="${cmd[*]}"
     echo "$timestamp $direction ($action): rate=$rate, loss=$loss | $cmd_str"
 
-    # Execute command
     if [[ $VERBOSE -eq 1 ]]; then
         "${cmd[@]}"
     else
@@ -184,9 +189,8 @@ apply_scenario() {
     rc=$?
 }
 
-
 # -----------------------------
-# Pre-create qdiscs (overwrite) - do outgoing then incoming
+# Pre-create qdiscs (overwrite)
 # -----------------------------
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Pre-creating qdiscs..."
 apply_scenario outgoing "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--overwrite" "${OUT_EXTRA[@]}"
@@ -199,20 +203,33 @@ for ((i=1; i<=REPEAT; i++)); do
 
     apply_scenario outgoing "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--change" "${OUT_EXTRA[@]}"
     apply_scenario incoming "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--change" "${IN_EXTRA[@]}"
-
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] Baseline active for $BASE_DURATION seconds..."
     sleep "$BASE_DURATION"
 
-    apply_scenario outgoing "$HIGHLOSS_RATE" "$HIGHLOSS_DELAY" "$HIGHLOSS_DELAY_DISTRO" "$HIGHLOSS_LOSS" "$HIGHLOSS_DUP" "$HIGHLOSS_CORRUPT" "$HIGHLOSS_LIMIT" "--change" "${OUT_EXTRA[@]}"
-    apply_scenario incoming "$HIGHLOSS_RATE" "$HIGHLOSS_DELAY" "$HIGHLOSS_DELAY_DISTRO" "$HIGHLOSS_LOSS" "$HIGHLOSS_DUP" "$HIGHLOSS_CORRUPT" "$HIGHLOSS_LIMIT" "--change" "${IN_EXTRA[@]}"
+    if [[ $BURST_COUNT -gt 0 ]]; then
+        echo "[$(date +'%Y-%m-%d %H:%M:%S')] Starting burst sequence: $BURST_COUNT bursts..."
+        for ((b=1; b<=BURST_COUNT; b++)); do
 
-    echo "[$(date +'%Y-%m-%d %H:%M:%S')] High-loss active for $HIGHLOSS_DURATION seconds..."
-    sleep "$HIGHLOSS_DURATION"
+            # HIGH-LOSS PHASE
+            apply_scenario outgoing "$HIGHLOSS_RATE" "$HIGHLOSS_DELAY" "$HIGHLOSS_DELAY_DISTRO" "$HIGHLOSS_LOSS" "$HIGHLOSS_DUP" "$HIGHLOSS_CORRUPT" "$HIGHLOSS_LIMIT" "--change" "${OUT_EXTRA[@]}"
+            apply_scenario incoming "$HIGHLOSS_RATE" "$HIGHLOSS_DELAY" "$HIGHLOSS_DELAY_DISTRO" "$HIGHLOSS_LOSS" "$HIGHLOSS_DUP" "$HIGHLOSS_CORRUPT" "$HIGHLOSS_LIMIT" "--change" "${IN_EXTRA[@]}"
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] Burst $b/$BURST_COUNT high-loss for $HIGHLOSS_DURATION seconds..."
+            sleep "$HIGHLOSS_DURATION"
+
+            # Apply baseline between bursts
+            if (( b < BURST_COUNT )); then
+                apply_scenario outgoing "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--change" "${OUT_EXTRA[@]}"
+                apply_scenario incoming "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--change" "${IN_EXTRA[@]}"
+                echo "[$(date +'%Y-%m-%d %H:%M:%S')] Burst $b/$BURST_COUNT baseline for $BURST_INTERVAL seconds..."
+                sleep "$BURST_INTERVAL"
+            fi
+        done
+    fi
 
 done
 
 # -----------------------------
-# Cleanup - delete all rules using tcdel
+# Cleanup - delete all rules
 # -----------------------------
 echo "[$(date +'%Y-%m-%d %H:%M:%S')] Deleting all tc rules on $IFACE..."
 echo "[CMD] tcdel $IFACE --all"
