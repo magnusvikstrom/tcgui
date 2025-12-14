@@ -190,18 +190,19 @@ apply_scenario() {
 }
 
 # -----------------------------
+# Pre-create qdiscs (overwrite)
+# -----------------------------
+echo "[$(date +'%Y-%m-%d %H:%M:%S')] Pre-creating qdiscs..."
+apply_scenario outgoing "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--overwrite" "${OUT_EXTRA[@]}"
+apply_scenario incoming "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--overwrite" "${IN_EXTRA[@]}"
+
+# -----------------------------
 # Repeat loop
 # -----------------------------
 for ((i=1; i<=REPEAT; i++)); do
 
-    # First application uses --overwrite, otherwise --change
-    BASE_ACTION="--change"
-    if [[ $i -eq 1 ]]; then
-        BASE_ACTION="--overwrite"
-    fi
-
-    apply_scenario outgoing "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "$BASE_ACTION" "${OUT_EXTRA[@]}"
-    apply_scenario incoming "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "$BASE_ACTION" "${IN_EXTRA[@]}"
+    apply_scenario outgoing "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--change" "${OUT_EXTRA[@]}"
+    apply_scenario incoming "$BASE_RATE" "$BASE_DELAY" "$BASE_DELAY_DISTRO" "$BASE_LOSS" "$BASE_DUP" "$BASE_CORRUPT" "$BASE_LIMIT" "--change" "${IN_EXTRA[@]}"
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] Baseline active for $BASE_DURATION seconds..."
     sleep "$BASE_DURATION"
 
