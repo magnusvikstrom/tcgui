@@ -194,7 +194,8 @@ function renderStats(data) {
     for (const dev in data) {
         ["outgoing","incoming"].forEach(dir => {
             if(!data[dev][dir]) return;
-            data[dev][dir].forEach(q => {
+            const sortedQdiscs = [...data[dev][dir]].sort(compareQdiscsByFilterId);
+            sortedQdiscs.forEach(q => {
                 if(!showAll && (q.kind === "htb" || q.kind === "ingress")) return;
 
                 // summarize config
@@ -242,6 +243,26 @@ function renderStats(data) {
     }
 
     debugOutput.style.display = document.getElementById('showDebugOutput').checked ? 'block' : 'none';
+}
+
+function compareQdiscsByFilterId(a, b) {
+    const aId = extractFilterSortKey(a);
+    const bId = extractFilterSortKey(b);
+
+    if (aId === bId) return 0;
+    if (aId === null) return 1;
+    if (bId === null) return -1;
+
+    return aId - bId;
+}
+
+function extractFilterSortKey(qdisc) {
+    const filterId = qdisc.filter && qdisc.filter.filter_id;
+    if (!filterId || !filterId.includes("::")) return null;
+
+    const parsed = Number.parseInt(filterId.split("::")[1], 16);
+
+    return Number.isNaN(parsed) ? null : parsed;
 }
 
 function summarizeFilter(filterInfo) {
