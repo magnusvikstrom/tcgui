@@ -29,6 +29,97 @@ dev_list = None
 app.static_folder = "static"
 
 
+def parse_filter_rule_key(rule_key):
+    filter_info = {}
+
+    for part in rule_key.split(","):
+        item = part.strip()
+        if "=" not in item:
+            continue
+        key, value = item.split("=", 1)
+        filter_info[key.strip()] = value.strip()
+
+    return filter_info
+
+
+def normalize_tc_id_suffix(value, separator):
+    if not value or separator not in value:
+        return None
+
+    suffix = value.split(separator, 1)[1].strip().lower()
+    if suffix == "":
+        return None
+
+    try:
+        return format(int(suffix, 16), "x")
+    except ValueError:
+        return suffix.lstrip("0") or "0"
+
+
+def build_filter_metadata(settings_by_direction):
+    filters_by_minor = {}
+
+    for rule_key, rule_options in settings_by_direction.items():
+        minor_id = normalize_tc_id_suffix(rule_options.get("filter_id"), "::")
+        if not minor_id:
+            continue
+
+        filter_info = parse_filter_rule_key(rule_key)
+        filter_info["filter_id"] = rule_options.get("filter_id")
+        filters_by_minor[minor_id] = filter_info
+
+    return filters_by_minor
+
+
+def get_filter_flowid_map(dev):
+    flow_ids_by_filter_minor = {}
+
+    try:
+        out = subprocess.check_output(
+            ["tc", "filter", "show", "dev", dev],
+            stderr=subprocess.STDOUT
+        ).decode()
+    except Exception as e:
+        print("Stats filter mapping error:", e)
+        return flow_ids_by_filter_minor
+
+    current_filter_minor = None
+
+    for line in out.splitlines():
+        filter_match = re.search(r"\bfh ([0-9a-fA-F:]+)\b", line)
+        if filter_match:
+            current_filter_minor = normalize_tc_id_suffix(filter_match.group(1), "::")
+
+        flowid_match = re.search(r"\bflowid ([0-9a-fA-F:]+)\b", line)
+        if flowid_match and current_filter_minor:
+            flow_minor = normalize_tc_id_suffix(flowid_match.group(1), ":")
+            if flow_minor:
+                flow_ids_by_filter_minor[current_filter_minor] = flow_minor
+
+    return flow_ids_by_filter_minor
+
+
+def attach_filter_metadata(qdiscs, settings_by_direction, flow_ids_by_filter_minor):
+    filters_by_minor = build_filter_metadata(settings_by_direction)
+    filters_by_flow_minor = {}
+
+    for filter_minor, filter_info in filters_by_minor.items():
+        flow_minor = flow_ids_by_filter_minor.get(filter_minor)
+        if flow_minor:
+            filters_by_flow_minor[flow_minor] = filter_info
+
+    for qdisc in qdiscs:
+        minor_id = normalize_tc_id_suffix(qdisc.get("parent"), ":")
+        if not minor_id:
+            continue
+
+        filter_info = filters_by_flow_minor.get(minor_id) or filters_by_minor.get(minor_id)
+        if filter_info:
+            qdisc["filter"] = filter_info
+
+    return qdiscs
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description="TC web GUI")
     parser.add_argument(
@@ -172,9 +263,13 @@ def detect_ifb(dev):
 @app.route("/stats")
 def stats():
     result = {}
+    settings = get_settings(as_string=False)
 
     for dev in dev_list.split(" "):
         result[dev] = {}
+        device_settings = settings.get(dev, {})
+        outgoing_flow_ids = get_filter_flowid_map(dev)
+        result[dev]["outgoing_filters"] = device_settings.get("outgoing", {})
 
         # Outgoing is always on the main device
         try:
@@ -211,12 +306,19 @@ def stats():
                 opts = q.setdefault("options", {})
                 opts["rate"] = class_rate_map[parent] * 8
 
+        qdiscs = attach_filter_metadata(
+            qdiscs,
+            device_settings.get("outgoing", {}),
+            outgoing_flow_ids,
+        )
         result[dev]["outgoing"] = qdiscs
 
         # Detect IFB device for incoming shaping
         ifb = detect_ifb(dev)
 
         if ifb:
+            incoming_flow_ids = get_filter_flowid_map(ifb)
+            result[dev]["incoming_filters"] = device_settings.get("incoming", {})
             try:
                 out = subprocess.check_output(
                     ["tc", "-j", "-s", "qdisc", "show", "dev", ifb],
@@ -251,10 +353,16 @@ def stats():
                     opts = q.setdefault("options", {})
                     opts["rate"] = class_rate_map_in[parent] * 8
 
+            qdiscs_in = attach_filter_metadata(
+                qdiscs_in,
+                device_settings.get("incoming", {}),
+                incoming_flow_ids,
+            )
             result[dev]["incoming"] = qdiscs_in
 
         else:
             result[dev]["incoming"] = []
+            result[dev]["incoming_filters"] = device_settings.get("incoming", {})
 
     return json.dumps(result)
 

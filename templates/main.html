@@ -150,6 +150,7 @@
     <thead>
       <tr>
         <th title="Rule">Rule</th>
+        <th title="Traffic selector for this rule">Filter</th>
         <th title="Bytes sent/received">Bytes</th>
         <th title="Packets sent/received">Packets</th>
         <th title="Packets dropped">Drops</th>
@@ -213,6 +214,9 @@ function renderStats(data) {
                     if(q.options.corrupt) configSummary.push(`corrupt:${q.options.corrupt.corrupt*100}%`);
                 }
                 const fullConfig = JSON.stringify(q.options);
+                const filterInfo = q.filter || {};
+                const filterSummary = summarizeFilter(filterInfo);
+                const fullFilter = JSON.stringify(filterInfo);
 
 		let combinedInfo = `
                     <div><strong>${dev}</strong> (${dir})</div>
@@ -222,6 +226,7 @@ function renderStats(data) {
 
                 let row = `<tr>
                     <td>${combinedInfo}</td>
+                    <td title='${fullFilter}'>${filterSummary}</td>
                     <td>${q.bytes || 0}</td>
                     <td>${q.packets || 0}</td>
                     <td>${q.drops || 0}</td>
@@ -237,6 +242,19 @@ function renderStats(data) {
     }
 
     debugOutput.style.display = document.getElementById('showDebugOutput').checked ? 'block' : 'none';
+}
+
+function summarizeFilter(filterInfo) {
+    if (!filterInfo || Object.keys(filterInfo).length === 0) return "-";
+
+    const parts = [];
+    if (filterInfo.src_network) parts.push(`src net:${filterInfo.src_network}`);
+    if (filterInfo.dst_network) parts.push(`dst net:${filterInfo.dst_network}`);
+    if (filterInfo.src_port) parts.push(`src port:${filterInfo.src_port}`);
+    if (filterInfo.dst_port) parts.push(`dst port:${filterInfo.dst_port}`);
+    if (filterInfo.protocol) parts.push(`proto:${filterInfo.protocol}`);
+
+    return parts.join(", ") || "-";
 }
 
 function startAutoRefresh() {
