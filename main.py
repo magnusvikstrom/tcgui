@@ -370,11 +370,46 @@ def get_settings(as_string = True):
     settings = {}
 
     for dev in dev_list.split(" "):
-      command = "tcshow %s" % dev
-      command = command.split(" ")
-      proc = subprocess.Popen(command, stdout=subprocess.PIPE)
-      output = proc.communicate()[0].decode()
-      settings[dev] = json.loads(output)[dev]
+      command = ["tcshow", dev]
+      proc = subprocess.run(
+          command,
+          stdout=subprocess.PIPE,
+          stderr=subprocess.PIPE,
+          text=True,
+      )
+      output = proc.stdout.strip()
+      stderr_output = proc.stderr.strip()
+
+      if proc.returncode != 0:
+          print(
+              "tcshow failed for %s (rc=%s): %s"
+              % (dev, proc.returncode, stderr_output or output or "<no output>")
+          )
+          settings[dev] = {}
+          continue
+
+      if not output:
+          print("tcshow returned empty output for %s" % dev)
+          settings[dev] = {}
+          continue
+
+      try:
+          parsed_output = json.loads(output)
+      except json.JSONDecodeError as e:
+          print("tcshow returned invalid JSON for %s: %s" % (dev, output))
+          print(e)
+          settings[dev] = {}
+          continue
+
+      if dev not in parsed_output:
+          print(
+              "tcshow output for %s missing device key. Keys: %s"
+              % (dev, list(parsed_output.keys()))
+          )
+          settings[dev] = {}
+          continue
+
+      settings[dev] = parsed_output[dev]
 
     print("Settings: %s " % settings)
 
