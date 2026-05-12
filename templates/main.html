@@ -247,14 +247,7 @@ function renderStats(data) {
 function summarizeFilter(filterInfo) {
     if (!filterInfo || Object.keys(filterInfo).length === 0) return "-";
 
-    const parts = [];
-    if (filterInfo.src_network) parts.push(`src net:${filterInfo.src_network}`);
-    if (filterInfo.dst_network) parts.push(`dst net:${filterInfo.dst_network}`);
-    if (filterInfo.src_port) parts.push(`src port:${filterInfo.src_port}`);
-    if (filterInfo.dst_port) parts.push(`dst port:${filterInfo.dst_port}`);
-    if (filterInfo.protocol) parts.push(`proto:${filterInfo.protocol}`);
-
-    return parts.join(", ") || "-";
+    return filterInfo.filter_id ? `id:${filterInfo.filter_id}` : "-";
 }
 
 function startAutoRefresh() {
