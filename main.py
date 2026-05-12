@@ -5,6 +5,7 @@ import argparse
 import json
 import tempfile
 import time
+import copy
 
 from flask import Flask, render_template, request, url_for, flash, abort
 
@@ -18,6 +19,7 @@ BANDWIDTH_UNITS = [
 ]
 
 STANDARD_UNIT = "mbps"
+SETTINGS_CACHE_TTL_SECONDS = float(os.environ.get("TCGUI_SETTINGS_CACHE_TTL", "30"))
 
 
 app = Flask(__name__)
@@ -25,6 +27,7 @@ app.secret_key = os.environ.get('SECRET_KEY', 'dev')
 
 pattern = None
 dev_list = None
+settings_cache = {"data": None, "timestamp": 0.0}
 
 app.static_folder = "static"
 
@@ -120,6 +123,62 @@ def attach_filter_metadata(qdiscs, settings_by_direction, flow_ids_by_filter_min
     return qdiscs
 
 
+def load_settings_from_tcshow():
+    settings = {}
+
+    for dev in dev_list.split(" "):
+      command = ["tcshow", dev]
+      proc = subprocess.run(
+          command,
+          stdout=subprocess.PIPE,
+          stderr=subprocess.PIPE,
+          text=True,
+      )
+      output = proc.stdout.strip()
+      stderr_output = proc.stderr.strip()
+
+      if proc.returncode != 0:
+          print(
+              "tcshow failed for %s (rc=%s): %s"
+              % (dev, proc.returncode, stderr_output or output or "<no output>")
+          )
+          settings[dev] = {}
+          continue
+
+      if not output:
+          print("tcshow returned empty output for %s" % dev)
+          settings[dev] = {}
+          continue
+
+      try:
+          parsed_output = json.loads(output)
+      except json.JSONDecodeError as e:
+          print("tcshow returned invalid JSON for %s: %s" % (dev, output))
+          print(e)
+          settings[dev] = {}
+          continue
+
+      if dev not in parsed_output:
+          print(
+              "tcshow output for %s missing device key. Keys: %s"
+              % (dev, list(parsed_output.keys()))
+          )
+          settings[dev] = {}
+          continue
+
+      settings[dev] = parsed_output[dev]
+
+    print("Settings: %s " % settings)
+    return settings
+
+
+def refresh_settings_cache():
+    settings = load_settings_from_tcshow()
+    settings_cache["data"] = settings
+    settings_cache["timestamp"] = time.time()
+    return copy.deepcopy(settings)
+
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description="TC web GUI")
     parser.add_argument(
@@ -147,7 +206,7 @@ def parse_arguments():
 
 @app.route("/")
 def main():
-    settings = get_settings()
+    settings = get_settings(force_refresh=True)
 
     return render_template(
         "main.html", units=BANDWIDTH_UNITS, standard_unit=STANDARD_UNIT, settings=settings, interfaces=dev_list.split(" ")
@@ -177,7 +236,7 @@ def import_settings():
         abort(400, "Error")
 
 
-    return get_settings()
+    return get_settings(force_refresh=True)
 
 @app.route("/remove_all", methods=["POST"])
 def remove_all():
@@ -188,7 +247,7 @@ def remove_all():
     # Wait a while before getting settings to avoid empty json response
     time.sleep(0.5)
 
-    return get_settings()
+    return get_settings(force_refresh=True)
 
 @app.route("/add_rule", methods=["POST"])
 def add_rule():
@@ -241,7 +300,7 @@ def add_rule():
         print(e.output)
         flash("Invalid settings")
 
-    return get_settings()
+    return get_settings(force_refresh=True)
 
 def detect_ifb(dev):
     try:
@@ -366,52 +425,18 @@ def stats():
 
     return json.dumps(result)
 
-def get_settings(as_string = True):
-    settings = {}
+def get_settings(as_string = True, force_refresh = False):
+    cache_data = settings_cache.get("data")
+    cache_is_stale = (
+        SETTINGS_CACHE_TTL_SECONDS <= 0
+        or cache_data is None
+        or (time.time() - settings_cache.get("timestamp", 0.0)) > SETTINGS_CACHE_TTL_SECONDS
+    )
 
-    for dev in dev_list.split(" "):
-      command = ["tcshow", dev]
-      proc = subprocess.run(
-          command,
-          stdout=subprocess.PIPE,
-          stderr=subprocess.PIPE,
-          text=True,
-      )
-      output = proc.stdout.strip()
-      stderr_output = proc.stderr.strip()
-
-      if proc.returncode != 0:
-          print(
-              "tcshow failed for %s (rc=%s): %s"
-              % (dev, proc.returncode, stderr_output or output or "<no output>")
-          )
-          settings[dev] = {}
-          continue
-
-      if not output:
-          print("tcshow returned empty output for %s" % dev)
-          settings[dev] = {}
-          continue
-
-      try:
-          parsed_output = json.loads(output)
-      except json.JSONDecodeError as e:
-          print("tcshow returned invalid JSON for %s: %s" % (dev, output))
-          print(e)
-          settings[dev] = {}
-          continue
-
-      if dev not in parsed_output:
-          print(
-              "tcshow output for %s missing device key. Keys: %s"
-              % (dev, list(parsed_output.keys()))
-          )
-          settings[dev] = {}
-          continue
-
-      settings[dev] = parsed_output[dev]
-
-    print("Settings: %s " % settings)
+    if force_refresh or cache_is_stale:
+      settings = refresh_settings_cache()
+    else:
+      settings = copy.deepcopy(cache_data)
 
     if as_string:
       return json.dumps(settings, indent=4)
