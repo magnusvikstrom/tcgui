@@ -30,6 +30,9 @@
          </div>
        {% endif %}
     {% endwith %}
+    {% for notice in notices %}
+      <div class="notice">{{ notice }}</div>
+    {% endfor %}
   <div class="row">
     <div class="column">
     <form class="ajax-form" method="POST" action="{{ url_for('import_settings') }}">
@@ -357,10 +360,13 @@ document.getElementById('showDebugOutput').addEventListener('change', fetchAndRe
           if (xhr.status === 200) {
             document.getElementById('messages').innerHTML = "Settings updated";
             document.getElementById('settings').value = e.target.responseText;
+          } else if ((xhr.getResponseHeader("Content-Type") || "").startsWith("text/plain")) {
+            // The server's reason: a refusal or tcset's own error output.
+            document.getElementById('messages').textContent = xhr.responseText;
           } else {
             document.getElementById('messages').innerHTML = "Bad request (check format)";
           }
-          window.setTimeout("hideMessages()", 3000);
+          window.setTimeout("hideMessages()", xhr.status === 200 ? 3000 : 15000);
       });
       xhr.addEventListener("error", e => {
           //var msg = "Modifying the network interface used for the current HTTP request required a page reload. Reloading page in 3 seconds..";
@@ -428,6 +434,17 @@ document.getElementById('showDebugOutput').addEventListener('change', fetchAndRe
         background-color: gray;
         padding: 0.5em;
         display: none;
+    }
+
+    .messages {
+        white-space: pre-wrap;
+    }
+
+    .notice {
+        font-weight: bold;
+        background-color: #ffd27a;
+        padding: 0.5em;
+        margin-top: 0.5em;
     }
 </style>
 

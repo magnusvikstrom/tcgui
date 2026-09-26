@@ -204,12 +204,89 @@ def parse_arguments():
     return parser.parse_args()
 
 
+# The impairment console (asmira-vs-quic, impair-console/) can shape the
+# same interface. It adds a clsact qdisc while it runs a session and removes
+# it afterwards; tcconfig never creates one. While it is there, an incoming
+# rule cannot be added (the ingress hook is taken) although tcset exits 0,
+# and an outgoing rule stacks on the console's shaping of its clients, so
+# changes are refused. Clear All stays allowed: tcdel leaves the clsact qdisc
+# and its filters alone. The other way round, the console refuses to start a
+# run while an ingress qdisc (tcgui's incoming rules) is on the interface.
+def qdisc_kinds(dev):
+    try:
+        out = subprocess.run(
+            ["tc", "-j", "qdisc", "show", "dev", dev],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=True,
+        ).stdout
+        return {q.get("kind") for q in json.loads(out or "[]")}
+    except (subprocess.CalledProcessError, ValueError) as e:
+        print("tc qdisc show failed for %s: %s" % (dev, e))
+        return set()
+
+
+def console_running(dev):
+    """Whether an impairment console holds its lock on DEV: an abstract Unix
+    socket named impair-console-DEV, scoped to this network namespace."""
+    try:
+        with open("/proc/net/unix") as f:
+            return any(line.split()[-1] == "@impair-console-" + dev for line in f if len(line.split()) > 7)
+    except OSError:
+        return False
+
+
+def console_conflict(devs):
+    """Why tcset may not change DEVS now, or None."""
+    busy = [dev for dev in devs if "clsact" in qdisc_kinds(dev)]
+    if not busy:
+        return None
+    return (
+        "Not applied: %s has a clsact qdisc, most likely an impairment console run in progress. "
+        "An incoming rule cannot be added while it is there, and an outgoing rule would stack on "
+        "that run's shaping. Try again when the run has ended." % ", ".join(busy)
+    )
+
+
+def interface_notices():
+    notices = []
+    for dev in dev_list.split(" "):
+        kinds = qdisc_kinds(dev)
+        if "clsact" in kinds:
+            notices.append(
+                "%s: a clsact qdisc is present, most likely an impairment console run; "
+                "changes to %s are refused until it is gone. Clear All is still safe." % (dev, dev)
+            )
+        elif "ingress" in kinds and console_running(dev):
+            notices.append(
+                "%s: the impairment console on %s cannot start runs while incoming rules are set here. "
+                "Clear All removes them." % (dev, dev)
+            )
+    return notices
+
+
+def run_tcset(command):
+    """Run tcset; (ok, output). tcset exits 0 even when a tc command it issues
+    fails, and logs [ERROR] instead, so both are checked."""
+    proc = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    output = re.sub(r"\x1b\[[0-9;]*m", "", proc.stdout)
+    print(output)
+    return proc.returncode == 0 and "[ERROR]" not in output, output
+
+
+def refuse(message, status):
+    print(message)
+    return message, status, {"Content-Type": "text/plain; charset=utf-8"}
+
+
 @app.route("/")
 def main():
     settings = get_settings(force_refresh=True)
 
     return render_template(
-        "main.html", units=BANDWIDTH_UNITS, standard_unit=STANDARD_UNIT, settings=settings, interfaces=dev_list.split(" ")
+        "main.html", units=BANDWIDTH_UNITS, standard_unit=STANDARD_UNIT, settings=settings, interfaces=dev_list.split(" "),
+        notices=interface_notices(),
     )
 
 
@@ -221,19 +298,22 @@ def import_settings():
     except ValueError as e:
         abort(400, "Error")
 
-    try:
-        delete_all()
-        f = tempfile.NamedTemporaryFile(delete = False, mode = "w")
-        f.write(json.dumps(settings, indent=4))
-        f.close()
-        command = "tcset --import-setting %s" % f.name
-        command = command.split(" ")
-        proc = subprocess.check_output(command, stderr=subprocess.STDOUT)
-        os.unlink(f.name)
-        flash("Successfully updated settings")
-    except subprocess.CalledProcessError as e:
-        print(e.output)
+    if not isinstance(settings, dict):
         abort(400, "Error")
+    conflict = console_conflict([dev for dev in dev_list.split(" ") if dev in settings])
+    if conflict:
+        return refuse(conflict, 409)
+
+    delete_all()
+    f = tempfile.NamedTemporaryFile(delete = False, mode = "w")
+    f.write(json.dumps(settings, indent=4))
+    f.close()
+    command = "tcset --import-setting %s" % f.name
+    ok, output = run_tcset(command.split(" "))
+    os.unlink(f.name)
+    if not ok:
+        return refuse("tcset failed:\n" + output[-1000:], 400)
+    flash("Successfully updated settings")
 
 
     return get_settings(force_refresh=True)
@@ -292,13 +372,13 @@ def add_rule():
         command += " --limit %s" % limit
     print(command)
 
-    try:
-        command = command.split(" ")
-        proc = subprocess.check_output(command, stderr=subprocess.STDOUT)
-        flash("Successfully updated settings")
-    except subprocess.CalledProcessError as e:
-        print(e.output)
-        flash("Invalid settings")
+    conflict = console_conflict([interface])
+    if conflict:
+        return refuse(conflict, 409)
+    ok, output = run_tcset(command.split(" "))
+    if not ok:
+        return refuse("tcset failed:\n" + output[-1000:], 400)
+    flash("Successfully updated settings")
 
     return get_settings(force_refresh=True)
 
