@@ -212,6 +212,9 @@ def parse_arguments():
 # changes are refused. Clear All stays allowed: tcdel leaves the clsact qdisc
 # and its filters alone. The other way round, the console refuses to start a
 # run while an ingress qdisc (tcgui's incoming rules) is on the interface.
+# A run with the console's terminal PEP is shaped on lo instead, with its
+# clients' traffic redirected to a local proxy, so it is recognised by the
+# console's lock on the interface plus a clsact qdisc on lo.
 def qdisc_kinds(dev):
     try:
         out = subprocess.run(
@@ -237,28 +240,53 @@ def console_running(dev):
         return False
 
 
+def console_run(dev):
+    """How an impairment console run shapes DEV's traffic now: "clsact" (a
+    qdisc on DEV), "pep" (a PEP run, shaped on lo), or None."""
+    if "clsact" in qdisc_kinds(dev):
+        return "clsact"
+    if dev != "lo" and console_running(dev) and "clsact" in qdisc_kinds("lo"):
+        return "pep"
+    return None
+
+
 def console_conflict(devs):
     """Why tcset may not change DEVS now, or None."""
-    busy = [dev for dev in devs if "clsact" in qdisc_kinds(dev)]
-    if not busy:
-        return None
-    return (
-        "Not applied: %s has a clsact qdisc, most likely an impairment console run in progress. "
-        "An incoming rule cannot be added while it is there, and an outgoing rule would stack on "
-        "that run's shaping. Try again when the run has ended." % ", ".join(busy)
-    )
+    runs = {dev: console_run(dev) for dev in devs}
+    busy = [dev for dev, run in runs.items() if run == "clsact"]
+    pep = [dev for dev, run in runs.items() if run == "pep"]
+    if busy:
+        return (
+            "Not applied: %s has a clsact qdisc, most likely an impairment console run in progress. "
+            "An incoming rule cannot be added while it is there, and an outgoing rule would stack on "
+            "that run's shaping. Try again when the run has ended." % ", ".join(busy)
+        )
+    if pep:
+        return (
+            "Not applied: an impairment console run with a terminal PEP is in progress on %s "
+            "(shaped on lo). A rule here would stack on that run's shaping, and incoming rules "
+            "would stop the console from starting further runs. Try again when the run has ended."
+            % ", ".join(pep)
+        )
+    return None
 
 
 def interface_notices():
     notices = []
     for dev in dev_list.split(" "):
         kinds = qdisc_kinds(dev)
-        if "clsact" in kinds:
+        run = console_run(dev)
+        if run == "clsact":
             notices.append(
                 "%s: a clsact qdisc is present, most likely an impairment console run; "
                 "changes to %s are refused until it is gone. Clear All is still safe." % (dev, dev)
             )
-        elif "ingress" in kinds and console_running(dev):
+        elif run == "pep":
+            notices.append(
+                "%s: an impairment console run with a terminal PEP is in progress (shaped on lo); "
+                "changes to %s are refused until it ends. Clear All is still safe." % (dev, dev)
+            )
+        if run != "clsact" and "ingress" in kinds and console_running(dev):
             notices.append(
                 "%s: the impairment console on %s cannot start runs while incoming rules are set here. "
                 "Clear All removes them." % (dev, dev)
